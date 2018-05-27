@@ -1,6 +1,8 @@
 use std::io::{self, Read};
+use std::fmt;
 use util;
 
+#[derive(Debug)]
 pub enum RomError {
     IoError(io::Error),
     FormatError,
@@ -44,6 +46,15 @@ pub struct INesHeader {
     zero: [u8; 5]
 }
 
+impl fmt::Display for INesHeader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "PRG_ROM: {} KB, CHR_ROM: {} KB",
+            self.prg_rom as u32 * 16,
+            self.chr_rom as u32 * 8
+        )
+    }
+}
+
 impl INesHeader {
     fn parse_header(header: [u8; 16]) -> Self {
         INesHeader {
@@ -70,9 +81,9 @@ impl INesHeader {
 }
 
 pub struct Rom {
-    header: INesHeader,
-    prg: Vec<u8>,
-    chr: Vec<u8>
+    pub header: INesHeader,
+    pub prg: Vec<u8>,
+    pub chr: Vec<u8>
 }
 
 impl Rom {
@@ -99,13 +110,5 @@ impl Rom {
                 chr: chr_rom
             })
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn is_one() {
-        assert_eq!(1, 1);
     }
 }
