@@ -1,6 +1,6 @@
-use mem;
+use mem::Mem;
 use std::ops::Deref;
-/*
+
 trait AddressingMode<M: Mem> {
     fn load(&self, cpu: &mut NesCpu<M>) -> u8;
     fn store(&self, cpu: &mut NesCpu<M>, val: u8);
@@ -20,8 +20,7 @@ impl<M: Mem> AddressingMode<M> for AccumulatorAddressingMode {
 struct ImmediateAddressingMode;
 impl<M: Mem> AddressingMode<M> for ImmediateAddressingMode {
     fn load(&self, cpu: &mut NesCpu<M>) -> u8 {
-        // TODO
-        0
+        cpu.load_pc_bump()
     }
     fn store(&self, cpu: &mut NesCpu<M>, _: u8) {
         panic!("Can't store to an immediate value")
@@ -43,13 +42,10 @@ impl Deref for MemoryAddressingMode {
 
 impl<M: Mem> AddressingMode<M> for MemoryAddressingMode {
     fn load(&self, cpu: &mut NesCpu<M>) -> u8 {
-        // TODO
-        // cpu.loadb(**self)
-        0
+        cpu.loadb(**self)
     }
-    fn store(&self, cpu: &mut NesCpu<M>, _: u8) {
-        // TODO
-        // cpu.storeb(**self)
+    fn store(&self, cpu: &mut NesCpu<M>, val: u8) {
+        cpu.storeb(**self, val);
     }
 }
 
@@ -72,16 +68,47 @@ struct Registers {
     status: u8
 }
 
-pub struct NesCpu {
+pub struct NesCpu<M: Mem> {
     clock: u64,
     regs: Registers,
+    pub mem: M
 }
 
-impl NesCpu {
+enum MemRegType {
+    X,
+    Y,
+    NoType
+}
+
+impl<M: Mem> Mem for NesCpu<M> {
+    fn loadb(&mut self, addr: u16) -> u8 {
+        self.mem.loadb(addr)
+    }
+
+    fn storeb(&mut self, addr: u16, val: u8) {
+        self.mem.storeb(addr, val);
+    }
+}
+
+impl<M: Mem> NesCpu<M> {
     pub fn step_to(&mut self, cycle: u64) {
         while self.clock < cycle {
             self.execute_instruction();
         }
+    }
+
+    fn load_pc_bump(&mut self) -> u8 {
+        let pc = self.regs.pc;
+        let val = self.loadb(pc);
+        self.regs.pc += 1;
+        val
+    }
+
+    fn loadw_pc_bump(&mut self) -> u16 {
+        let pc = self.regs.pc;
+        let val = self.loadw(pc);
+        self.regs.pc += 2;
+        val
     }
 
     fn execute_instruction(&mut self) -> u64 {
@@ -90,6 +117,47 @@ impl NesCpu {
         // Prepare the operand according to addressing mode
         // Execute instruction
         // Update PC and return the CPU cycles
+        0
+    }
+
+    // Memory addressing modes
+    fn accumulator(&mut self) -> AccumulatorAddressingMode {
+        AccumulatorAddressingMode
+    }
+
+    fn immediate(&mut self) -> ImmediateAddressingMode {
+        ImmediateAddressingMode
+    }
+
+    fn zero_page(&mut self, zero_type: MemRegType) -> MemoryAddressingMode {
+        MemoryAddressingMode {
+            val: match zero_type {
+                MemRegType::X => {
+                    (self.load_pc_bump() + self.regs.x) as u16
+                },
+                MemRegType::Y => {
+                    (self.load_pc_bump() + self.regs.y) as u16
+                },
+                MemRegType::NoType => { 
+                    self.load_pc_bump() as u16
+                }
+            }
+        }
+    }
+
+    fn absolute(&mut self, abs_type: MemRegType) -> MemoryAddressingMode {
+        MemoryAddressingMode {
+            val: match abs_type {
+                MemRegType::X => {
+                    self.loadw_pc_bump() + self.regs.x as u16
+                },
+                MemRegType::Y => {
+                    self.loadw_pc_bump() + self.regs.y as u16
+                },
+                MemRegType::NoType => {
+                    self.loadw_pc_bump()
+                }
+            }
+        }
     }
 }
-*/

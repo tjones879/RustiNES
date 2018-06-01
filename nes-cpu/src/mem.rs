@@ -11,6 +11,12 @@ pub trait Mem {
     // Write a byte to the given 0-based address
     // such that the initial address of each subsystem is 0
     fn storeb(&mut self, addr: u16, val: u8);
+
+    fn loadw(&mut self, addr: u16) -> u16 {
+        let lower = self.loadb(addr);
+        let higher = self.loadb(addr + 1);
+        lower as u16 | (higher as u16) << 8
+    }
 }
 
 pub struct Ram {
