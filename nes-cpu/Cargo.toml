@@ -1,0 +1,6 @@
+[package]
+name = "nes_cpu"
+version = "0.1.0"
+authors = ["Tyler Jones <tdjones879@gmail.com>"]
+
+[dependencies]
