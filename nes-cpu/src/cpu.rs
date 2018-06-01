@@ -111,6 +111,12 @@ impl<M: Mem> NesCpu<M> {
         val
     }
 
+    fn loadw_from_zp(&mut self, base: u16) -> u16 {
+        let lower = self.loadb(base % 256) as u16;
+        let higher = self.loadb((base + 1) % 256) as u16;
+        lower | higher << 8
+    }
+
     fn execute_instruction(&mut self) -> u64 {
         // Check if there is CPU Interrupt, handle it if so
         // Fetch the next instruction
@@ -156,6 +162,25 @@ impl<M: Mem> NesCpu<M> {
                 },
                 MemRegType::NoType => {
                     self.loadw_pc_bump()
+                }
+            }
+        }
+    }
+
+    fn indirect(&mut self, ind_type: MemRegType) -> MemoryAddressingMode {
+        let ptr = self.load_pc_bump();
+        MemoryAddressingMode {
+            val: match ind_type {
+                MemRegType::X => {
+                    let x = self.regs.x;
+                    self.loadw_from_zp(ptr as u16 + x as u16)
+                },
+                MemRegType::Y => {
+                    let y = self.regs.y;
+                    self.loadw_from_zp(ptr as u16) + y as u16
+                },
+                MemRegType::NoType => {
+                    panic!("There indirect addresses must always utilize X or Y")
                 }
             }
         }
