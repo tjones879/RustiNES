@@ -68,6 +68,37 @@ struct Registers {
     status: u8
 }
 
+enum Flags {
+    Carry = 1 << 0,
+    Zero = 1 << 1,
+    Interrupt = 1 << 2,
+    Decimal = 1 << 3,
+    Overflow = 1 << 6,
+    Negative = 1 << 7
+}
+
+impl Registers {
+    pub fn flag_set(&self, flag: Flags) -> bool {
+        self.status & flag as u8 != 0
+    }
+
+    pub fn save_flag(&mut self, flag: Flags, state: bool) {
+        if state {
+            self.status = self.status | flag as u8;
+        } else {
+            self.status = self.status & !(flag as u8);
+        }
+    }
+
+    pub fn check_zero(&mut self, value: u8) {
+        self.save_flag(Flags::Zero, value == 0);
+    }
+
+    pub fn check_negative(&mut self, value: u8) {
+        self.save_flag(Flags::Negative, value & 0x80 != 0)
+    }
+}
+
 pub struct NesCpu<M: Mem> {
     clock: u64,
     regs: Registers,
@@ -121,9 +152,371 @@ impl<M: Mem> NesCpu<M> {
         // Check if there is CPU Interrupt, handle it if so
         // Fetch the next instruction
         // Prepare the operand according to addressing mode
+
         // Execute instruction
         // Update PC and return the CPU cycles
         0
+    }
+
+    // Add with carry
+    fn adc<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let mut result = self.regs.a as u32 + val as u32;
+        if self.regs.flag_set(Flags::Carry) {
+            result += 1
+        }
+
+        self.regs.save_flag(Flags::Carry, (result & 0x100) != 0);
+
+        let result = result as u8;
+        let twos = result ^ self.regs.a;
+        self.regs.save_flag(Flags::Overflow, (twos & 0x80 == 0) && (twos & 0x80 == 0x80));
+        self.regs.check_negative(result);
+        self.regs.check_zero(result);
+    }
+
+    // Bitwise and with accumulator
+    fn and<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let result = self.regs.a & val;
+
+        self.regs.a = result;
+        self.regs.check_negative(result);
+        self.regs.check_zero(result);
+    }
+
+    // Arithmetic Shift Left
+    fn asl<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let old_val = mode.load(self);
+        let new_val = old_val << 1;
+        
+        self.regs.save_flag(Flags::Carry, old_val & (1 << 7) != 0);
+        self.regs.a = new_val;
+        self.regs.check_negative(new_val);
+        self.regs.check_zero(new_val);
+    }
+
+    // Test bits
+    fn bit<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let result = val & self.regs.a;
+
+        self.regs.save_flag(Flags::Overflow, result & (1 << 6) != 0);
+        self.regs.check_negative(result);
+        self.regs.check_zero(result);
+    }
+
+    // Branch Instructions
+    fn try_branch(&mut self, flag: bool) {
+        // Not 100% sure that this is correct
+        if flag {
+            let rel_addr = self.load_pc_bump();
+            self.regs.pc += rel_addr as u16;
+        }
+    }
+
+    // Branch on plus
+    fn bpl<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let neg_flag = self.regs.flag_set(Flags::Negative);
+        self.try_branch(!neg_flag);
+    }
+
+    // Branch on minus
+    fn bmi(&mut self) {
+        let neg_flag = self.regs.flag_set(Flags::Negative);
+        self.try_branch(neg_flag);
+    }
+
+    // Branch on overflow clear
+    fn bvc(&mut self) {
+        let ov_flag = self.regs.flag_set(Flags::Overflow);
+        self.try_branch(!ov_flag);
+    }
+
+    // Branch on overflow set
+    fn bvs(&mut self) {
+        let ov_flag = self.regs.flag_set(Flags::Overflow);
+        self.try_branch(ov_flag);
+    }
+
+    // Branch on carry clear
+    fn bcc(&mut self) {
+        let carry_flag = self.regs.flag_set(Flags::Carry);
+        self.try_branch(!carry_flag);
+    }
+
+    // Branch on carry set
+    fn bcs(&mut self) {
+        let carry_flag = self.regs.flag_set(Flags::Carry);
+        self.try_branch(carry_flag);
+    }
+
+    // Branch on not equal
+    fn bne(&mut self) {
+        let zero_flag = self.regs.flag_set(Flags::Zero);
+        self.try_branch(!zero_flag);
+    }
+
+    // Branch on equal
+    fn beq(&mut self) {
+        let zero_flag = self.regs.flag_set(Flags::Zero);
+        self.try_branch(zero_flag);
+    }
+
+    fn brk(&mut self) {
+
+    }
+
+    // Compare accumulator
+    fn cmp<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let a = self.regs.a;
+        self.regs.save_flag(Flags::Carry, a >= val);
+        self.regs.check_zero(a - val);
+        self.regs.check_negative(a - val);
+    }
+
+    // Compare X register
+    fn cpx<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let x = self.regs.x;
+        self.regs.save_flag(Flags::Carry, x >= val);
+        self.regs.check_zero(x - val);
+        self.regs.check_negative(x - val);
+    }
+
+    // Compare Y register
+    fn cpy<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let y = self.regs.y;
+        self.regs.save_flag(Flags::Carry, y >= val);
+        self.regs.check_zero(y - val);
+        self.regs.check_negative(y - val);
+    }
+
+    // Decrement memory
+    fn dec<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self) - 1;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
+        mode.store(self, val);
+    }
+
+    // Decrement X
+    fn dex(&mut self) {
+        let val = self.regs.x - 1;
+        self.regs.x = val;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
+    }
+
+    // Decrement Y
+    fn dey(&mut self) {
+        let val = self.regs.y - 1;
+        self.regs.y = val;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
+    }
+
+    // Bitwise XOR
+    fn eor<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let result = self.regs.a ^ val;
+        self.regs.a = result;
+        self.regs.check_negative(result);
+        self.regs.check_zero(result);
+    }
+
+    // Increment Memory
+    fn inc<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self) + 1;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
+        mode.store(self, val);
+    }
+
+    // Increment X
+    fn inx(&mut self) {
+        let val = self.regs.x + 1;
+        self.regs.x = val;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
+    }
+
+    // Increment Y
+    fn iny(&mut self) {
+        let val = self.regs.y + 1;
+        self.regs.y = val;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
+    }
+
+    // Jump
+    fn jmp(&mut self) {
+        // TODO
+    }
+
+    // Jump to Subroutine
+    fn jsr(&mut self) {
+        
+    }
+
+    // Load accumulator
+    fn lda(&mut self) {
+
+    }
+
+    // Load X register
+    fn ldx(&mut self) {
+
+    }
+
+    // Load Y register
+    fn ldy(&mut self) {
+
+    }
+
+    // Logical shift right
+    fn lsr(&mut self) {
+
+    }
+
+    // No Operation
+    fn nop(&mut self) {
+
+    }
+
+    // OR with accumulator
+    fn ora(&mut self) {
+
+    }
+
+    // Rotate left
+    fn rol(&mut self) {
+
+    }
+
+    // Rotate right
+    fn ror(&mut self) {
+
+    }
+
+    // Return from interrupt
+    fn rti(&mut self) {
+
+    }
+
+    // Return from subroutine
+    fn rts(&mut self) {
+
+    }
+
+    // Subtract with carry
+    fn sbc(&mut self) {
+
+    }
+
+    // Store accumulator
+    fn sta(&mut self) {
+
+    }
+
+    // Store accumulator
+    fn stx(&mut self) {
+
+    }
+
+    // Store accumulator
+    fn sty(&mut self) {
+
+    }
+
+    //// Register Instructions
+    // Transfer A to X
+    fn tax(&mut self) {
+
+    }
+
+    // Transfer X to A
+    fn txa(&mut self) {
+
+    }
+
+    // Transfer A to Y
+    fn tay(&mut self) {
+
+    }
+
+    // Transfer Y to A
+    fn tya(&mut self) {
+
+    }
+
+    //// Processor Status Instructions
+    // Clear carry
+    fn clc(&mut self) {
+
+    }
+
+    // Set carry
+    fn sec(&mut self) {
+
+    }
+
+    // Clear interrupt
+    fn cli(&mut self) {
+
+    }
+
+    // Set interrupt
+    fn sei(&mut self) {
+
+    }
+
+    // Clear overflow
+    fn clv(&mut self) {
+
+    }
+
+    // Clear decimal
+    fn cld(&mut self) {
+
+    }
+
+    // Set decimal
+    fn sed(&mut self) {
+
+    }
+
+    //// Stack Instructions
+    // Transfer X to stack ptr
+    fn txs(&mut self) {
+
+    }
+
+    // Transfer the stack ptr to X
+    fn tsx(&mut self) {
+
+    }
+
+    // Push the accumulator
+    fn pha(&mut self) {
+
+    }
+
+    // Pop the accumulator
+    fn pla(&mut self) {
+
+    }
+
+    // Push processor status
+    fn php(&mut self) {
+
+    }
+
+    // Pop processor status
+    fn plp(&mut self) {
+
     }
 
     // Memory addressing modes
