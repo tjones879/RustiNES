@@ -362,23 +362,36 @@ impl<M: Mem> NesCpu<M> {
     }
 
     // Load accumulator
-    fn lda(&mut self) {
-
+    fn lda<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        self.regs.a = val;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
     }
 
     // Load X register
-    fn ldx(&mut self) {
-
+    fn ldx<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        self.regs.x = val;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
     }
 
     // Load Y register
-    fn ldy(&mut self) {
-
+    fn ldy<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        self.regs.y = val;
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
     }
 
     // Logical shift right
-    fn lsr(&mut self) {
-
+    fn lsr<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        self.regs.save_flag(Flags::Carry, val & 1 != 0);
+        let val = val >> 1;
+        self.regs.check_zero(val);
+        self.regs.check_negative(val);
     }
 
     // No Operation
@@ -387,18 +400,42 @@ impl<M: Mem> NesCpu<M> {
     }
 
     // OR with accumulator
-    fn ora(&mut self) {
-
+    fn ora<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let result = self.regs.a | val;
+        self.regs.a = result;
+        self.regs.check_negative(result);
+        self.regs.check_zero(result);
     }
 
     // Rotate left
-    fn rol(&mut self) {
+    fn rol<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let carry = self.regs.flag_set(Flags::Carry);
+        self.regs.save_flag(Flags::Carry, val & (1 << 7) != 0);
+        let mut val = val << 1;
 
+        if carry {
+            val = val | 1;
+        }
+
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
     }
 
     // Rotate right
-    fn ror(&mut self) {
+    fn ror<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let val = mode.load(self);
+        let carry = self.regs.flag_set(Flags::Carry);
+        self.regs.save_flag(Flags::Carry, val & 1 != 0);
+        let mut val = val >> 1;
 
+        if carry {
+            val = val | (1 << 7);
+        }
+
+        self.regs.check_negative(val);
+        self.regs.check_zero(val);
     }
 
     // Return from interrupt
@@ -417,106 +454,138 @@ impl<M: Mem> NesCpu<M> {
     }
 
     // Store accumulator
-    fn sta(&mut self) {
-
+    fn sta<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let a = self.regs.a;
+        mode.store(self, a);
     }
 
-    // Store accumulator
-    fn stx(&mut self) {
-
+    // Store X register
+    fn stx<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let x = self.regs.x;
+        mode.store(self, x);
     }
 
-    // Store accumulator
-    fn sty(&mut self) {
-
+    // Store Y register
+    fn sty<MODE: AddressingMode<M>>(&mut self, mode: MODE) {
+        let y = self.regs.y;
+        mode.store(self, y);
     }
 
     //// Register Instructions
     // Transfer A to X
     fn tax(&mut self) {
-
+        let a = self.regs.a;
+        self.regs.x = a;
+        self.regs.check_negative(a);
+        self.regs.check_zero(a);
     }
 
     // Transfer X to A
     fn txa(&mut self) {
-
+        let x = self.regs.x;
+        self.regs.a = x;
+        self.regs.check_negative(x);
+        self.regs.check_zero(x);
     }
 
     // Transfer A to Y
     fn tay(&mut self) {
-
+        let a = self.regs.a;
+        self.regs.y = a;
+        self.regs.check_negative(a);
+        self.regs.check_zero(a);
     }
 
     // Transfer Y to A
     fn tya(&mut self) {
-
+        let y = self.regs.y;
+        self.regs.a = y;
+        self.regs.check_negative(y);
+        self.regs.check_zero(y);
     }
 
     //// Processor Status Instructions
     // Clear carry
     fn clc(&mut self) {
-
+        self.regs.save_flag(Flags::Carry, false);
     }
 
     // Set carry
     fn sec(&mut self) {
-
+        self.regs.save_flag(Flags::Carry, true);
     }
 
     // Clear interrupt
     fn cli(&mut self) {
-
+        self.regs.save_flag(Flags::Interrupt, false);
     }
 
     // Set interrupt
     fn sei(&mut self) {
-
+        self.regs.save_flag(Flags::Interrupt, true);
     }
 
     // Clear overflow
     fn clv(&mut self) {
-
+        self.regs.save_flag(Flags::Overflow, false);
     }
 
     // Clear decimal
     fn cld(&mut self) {
-
+        self.regs.save_flag(Flags::Decimal, false);
     }
 
     // Set decimal
     fn sed(&mut self) {
-
+        self.regs.save_flag(Flags::Decimal, true);
     }
 
     //// Stack Instructions
     // Transfer X to stack ptr
     fn txs(&mut self) {
-
+        self.regs.sp = self.regs.x;
     }
 
     // Transfer the stack ptr to X
     fn tsx(&mut self) {
+        let sp = self.regs.sp;
+        self.regs.x = sp;
+        self.regs.check_negative(sp);
+        self.regs.check_zero(sp);
+    }
 
+    fn push(&mut self, val: u8) {
+
+    }
+
+    fn pop(&mut self) -> u8 {
+        panic!("Not implemented")
     }
 
     // Push the accumulator
     fn pha(&mut self) {
-
+        let a = self.regs.a;
+        self.push(a);
     }
 
     // Pop the accumulator
     fn pla(&mut self) {
-
+        let a = self.pop();
+        self.regs.a = a;
+        self.regs.check_negative(a);
+        self.regs.check_zero(a);
     }
 
     // Push processor status
     fn php(&mut self) {
-
+        let p = self.regs.status;
+        self.push(p);
     }
 
     // Pop processor status
     fn plp(&mut self) {
-
+        let p = self.pop();
+        self.regs.status = p;
     }
 
     // Memory addressing modes
@@ -573,7 +642,7 @@ impl<M: Mem> NesCpu<M> {
                     self.loadw_from_zp(ptr as u16) + y as u16
                 },
                 MemRegType::NoType => {
-                    panic!("There indirect addresses must always utilize X or Y")
+                    panic!("Indirect addresses must always utilize X or Y")
                 }
             }
         }
